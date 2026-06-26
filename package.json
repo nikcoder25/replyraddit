@@ -1,0 +1,11 @@
+{
+  "name": "replyraddit",
+  "version": "1.0.0",
+  "description": "AI co-pilot for brand-safe Reddit marketing — working MVP",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "@netlify/blobs": "^8.1.0"
+  }
+}

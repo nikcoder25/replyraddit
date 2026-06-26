@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReplyRaddit — App</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="app.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23ff4500'/%3E%3Ctext x='50' y='70' font-size='60' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'%3ER%3C/text%3E%3C/svg%3E" />
+</head>
+<body class="app-body">
+  <header class="nav">
+    <div class="container nav-inner">
+      <a href="index.html" class="brand">
+        <span class="brand-mark">R</span>
+        <span class="brand-name">ReplyRaddit</span>
+      </a>
+      <div class="nav-cta" id="navUser" hidden>
+        <span class="user-email" id="userEmail"></span>
+        <button class="btn btn-ghost" id="logoutBtn">Log out</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== Auth ===== -->
+  <section class="auth-wrap" id="authView">
+    <div class="auth-card">
+      <h1 id="authTitle">Log in to ReplyRaddit</h1>
+      <p class="auth-sub" id="authSub">Find Reddit threads and draft replies in seconds.</p>
+      <form id="authForm" class="auth-form">
+        <label>Email
+          <input type="email" id="email" autocomplete="email" required placeholder="you@company.com" />
+        </label>
+        <label>Password
+          <input type="password" id="password" autocomplete="current-password" required placeholder="••••••••" minlength="6" />
+        </label>
+        <div class="auth-error" id="authError" hidden></div>
+        <button type="submit" class="btn btn-primary btn-lg full" id="authSubmit">Log in</button>
+      </form>
+      <p class="auth-toggle">
+        <span id="toggleText">No account yet?</span>
+        <a href="#" id="toggleLink">Sign up</a>
+      </p>
+    </div>
+  </section>
+
+  <!-- ===== Dashboard ===== -->
+  <section class="dash" id="dashView" hidden>
+    <div class="container">
+      <div class="dash-head">
+        <h1>Find your next Reddit opportunity</h1>
+        <p>Enter a keyword and your brand. We scan public Reddit, score the best threads, and draft replies you review and post.</p>
+      </div>
+
+      <form id="genForm" class="gen-form card">
+        <div class="gen-grid">
+          <label>Keyword / topic
+            <input type="text" id="keyword" required placeholder="e.g. project management tools" />
+          </label>
+          <label>Your product / brand
+            <input type="text" id="product" required placeholder="e.g. Acme — a Kanban app for small teams" />
+          </label>
+        </div>
+        <label>Persona (who's replying) <span class="opt">optional</span>
+          <input type="text" id="persona" placeholder="e.g. a founder who's run remote teams for 8 years" />
+        </label>
+        <button type="submit" class="btn btn-primary btn-lg" id="genSubmit">Find opportunities</button>
+      </form>
+
+      <div id="status" class="gen-status" hidden></div>
+      <div id="results" class="results"></div>
+    </div>
+  </section>
+
+  <footer class="footer app-footer">
+    <div class="container footer-bottom">
+      <p>© <span id="year"></span> ReplyRaddit. Not affiliated with or endorsed by Reddit, Inc. You review and post every reply manually.</p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
