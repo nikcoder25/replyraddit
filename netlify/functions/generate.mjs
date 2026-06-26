@@ -62,7 +62,7 @@ async function searchPullPush(keyword) {
       const res = await fetchTimeout(
         url,
         { headers: { "user-agent": UA_POOL[attempt % UA_POOL.length], accept: "application/json" } },
-        4000,
+        6000,
       );
       if (res.ok) {
         const data = await res.json().catch(() => null);
@@ -76,6 +76,41 @@ async function searchPullPush(keyword) {
     }
   }
   throw lastErr || new Error("PullPush request failed");
+}
+
+// 1b. Arctic Shift — independent credential-free Reddit archive (Pushshift-like).
+async function searchArcticShift(keyword) {
+  const url =
+    "https://arctic-shift.photon-reddit.com/api/posts/search?query=" +
+    encodeURIComponent(keyword) +
+    "&limit=25&sort=desc&sort_type=score";
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await SLEEP(250);
+    try {
+      const res = await fetchTimeout(
+        url,
+        { headers: { "user-agent": UA_POOL[attempt % UA_POOL.length], accept: "application/json" } },
+        6000,
+      );
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        return (data?.data || []).map(normalize).filter(Boolean);
+      }
+      lastErr = new Error(`ArcticShift HTTP ${res.status}`);
+      if (res.status !== 429 && res.status < 500) break;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("ArcticShift request failed");
+}
+
+// Resolve with a source's rows only if it actually returned threads.
+async function nonEmpty(fn) {
+  const rows = await fn();
+  if (rows && rows.length) return rows;
+  throw new Error("no rows");
 }
 
 // 2. Public Reddit JSON with rotating User-Agents (often 403s from cloud IPs).
@@ -95,7 +130,7 @@ async function searchPublicReddit(keyword) {
               "accept-language": "en-US,en;q=0.9",
             },
           },
-          3000,
+          4000,
         );
       } catch {
         continue;
@@ -152,30 +187,38 @@ async function searchOAuth(keyword) {
 }
 
 async function searchReddit(keyword) {
-  // Primary: credential-free PullPush. Fall back to OAuth (if configured),
-  // then public Reddit. Return whatever first yields real threads.
-  const sources = [
-    () => searchPullPush(keyword),
-    () => searchOAuth(keyword),
-    () => searchPublicReddit(keyword),
-  ];
-  let lastErr;
-  for (const run of sources) {
-    try {
-      const rows = await run();
-      if (rows && rows.length) return rows;
-    } catch (e) {
-      lastErr = e;
-    }
+  // Phase 1: race the two credential-free archives — whichever returns real
+  // threads first wins, so one being slow or down doesn't hold up the request.
+  try {
+    return await Promise.any([
+      nonEmpty(() => searchPullPush(keyword)),
+      nonEmpty(() => searchArcticShift(keyword)),
+    ]);
+  } catch {
+    /* both archives failed or returned nothing — fall through */
   }
-  if (lastErr) {
-    const err = new Error(
-      "Couldn't reach a Reddit data source right now. Please try again in a moment.",
-    );
-    err.status = 502;
-    throw err;
+
+  // Phase 2: OAuth, only if app credentials happen to be configured.
+  try {
+    const rows = await searchOAuth(keyword);
+    if (rows && rows.length) return rows;
+  } catch {
+    /* ignore */
   }
-  return []; // sources responded but found nothing
+
+  // Phase 3: public Reddit (usually 403 from cloud IPs) as a last resort.
+  try {
+    const rows = await searchPublicReddit(keyword);
+    if (rows && rows.length) return rows;
+  } catch {
+    /* ignore */
+  }
+
+  const err = new Error(
+    "Couldn't reach a Reddit data source right now. Please try again in a moment.",
+  );
+  err.status = 502;
+  throw err;
 }
 
 // ---- Multi-factor relevance scoring (relevance weighted highest) ----
