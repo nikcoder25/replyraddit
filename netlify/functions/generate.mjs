@@ -9,6 +9,17 @@ import { verifyToken, bearer, json } from "./_auth.mjs";
 // kept only as fallbacks.
 const SLEEP = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// fetch with a hard abort timeout so a slow source can't stall the function.
+async function fetchTimeout(url, opts = {}, ms = 4000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...opts, signal: ctrl.signal });
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 const UA_POOL = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -43,14 +54,16 @@ async function searchPullPush(keyword) {
   const url =
     "https://api.pullpush.io/reddit/search/submission/?q=" +
     encodeURIComponent(keyword) +
-    "&size=40&sort=desc&sort_type=score";
+    "&size=25&sort=desc&sort_type=score";
   let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt) await SLEEP(400 * attempt);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) await SLEEP(250);
     try {
-      const res = await fetch(url, {
-        headers: { "user-agent": UA_POOL[attempt % UA_POOL.length], accept: "application/json" },
-      });
+      const res = await fetchTimeout(
+        url,
+        { headers: { "user-agent": UA_POOL[attempt % UA_POOL.length], accept: "application/json" } },
+        4000,
+      );
       if (res.ok) {
         const data = await res.json().catch(() => null);
         const rows = (data?.data || []).map(normalize).filter(Boolean);
@@ -73,13 +86,17 @@ async function searchPublicReddit(keyword) {
     for (let i = 0; i < UA_POOL.length; i++) {
       let res;
       try {
-        res = await fetch(host + qs, {
-          headers: {
-            "user-agent": UA_POOL[i],
-            accept: "application/json, text/javascript, */*; q=0.01",
-            "accept-language": "en-US,en;q=0.9",
+        res = await fetchTimeout(
+          host + qs,
+          {
+            headers: {
+              "user-agent": UA_POOL[i],
+              accept: "application/json, text/javascript, */*; q=0.01",
+              "accept-language": "en-US,en;q=0.9",
+            },
           },
-        });
+          3000,
+        );
       } catch {
         continue;
       }
@@ -102,24 +119,29 @@ async function searchOAuth(keyword) {
   if (!id || !secret) return null;
   if (!(tokenCache.token && Date.now() < tokenCache.exp)) {
     const basic = Buffer.from(`${id}:${secret}`).toString("base64");
-    const tr = await fetch("https://www.reddit.com/api/v1/access_token", {
-      method: "POST",
-      headers: {
-        authorization: "Basic " + basic,
-        "content-type": "application/x-www-form-urlencoded",
-        "user-agent": REDDIT_UA,
+    const tr = await fetchTimeout(
+      "https://www.reddit.com/api/v1/access_token",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Basic " + basic,
+          "content-type": "application/x-www-form-urlencoded",
+          "user-agent": REDDIT_UA,
+        },
+        body: "grant_type=client_credentials",
       },
-      body: "grant_type=client_credentials",
-    });
+      3000,
+    );
     if (!tr.ok) return null;
     const td = await tr.json();
     tokenCache = { token: td.access_token, exp: Date.now() + ((td.expires_in || 3600) - 60) * 1000 };
   }
-  const res = await fetch(
+  const res = await fetchTimeout(
     "https://oauth.reddit.com/search?q=" +
       encodeURIComponent(keyword) +
       "&sort=relevance&t=year&limit=20&type=link",
     { headers: { authorization: "Bearer " + tokenCache.token, "user-agent": REDDIT_UA } },
+    3500,
   );
   if (!res.ok) {
     if (res.status === 401) tokenCache = { token: null, exp: 0 };
@@ -181,26 +203,18 @@ function scorePost(post, keyword) {
   return Math.round(score * 100);
 }
 
-const REPLY_SCHEMA = {
+const DRAFT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
-    replies: {
-      type: "array",
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          postId: { type: "string" },
-          reply: { type: "string" },
-          rationale: { type: "string" },
-        },
-        required: ["postId", "reply", "rationale"],
-      },
-    },
+    reply: { type: "string" },
+    rationale: { type: "string" },
   },
-  required: ["replies"],
+  required: ["reply", "rationale"],
 };
+
+const SYSTEM_PROMPT =
+  "You are a Reddit marketing co-pilot. Write an authentic, value-first reply that genuinely helps the original poster and only mentions the brand if it is truly relevant. Never sound like an ad. Be human, specific, and helpful, and disclose affiliation naturally if you recommend the product. Keep the reply to 2-4 sentences.";
 
 export default async function handler(req) {
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -249,46 +263,47 @@ export default async function handler(req) {
       score: scorePost(p, keyword),
     }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .slice(0, 3);
 
   if (scored.length === 0) {
     return json({ opportunities: [], note: "No matching public Reddit threads found. Try a broader keyword." });
   }
 
-  // 2. Draft replies with Claude
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  const promptThreads = scored
-    .map(
-      (p, i) =>
-        `${i + 1}. postId=${p.id} | ${p.subreddit} | "${p.title}"\n   ${p.snippet || "(no body)"}`,
-    )
-    .join("\n\n");
+  // 2. Draft replies — one fast Sonnet call per thread, run in parallel so the
+  // whole request stays well under the function timeout. maxRetries: 0 and a
+  // per-call timeout keep a single slow call from blowing the budget.
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 0 });
 
-  const system =
-    "You are a Reddit marketing co-pilot. Write authentic, value-first replies that genuinely help the original poster and only mention the brand if it is truly relevant. Never sound like an ad. Respect subreddit culture: be human, specific, and helpful. Disclose affiliation naturally if you recommend the product. Keep each reply 2-5 sentences.";
-
-  const userMsg = `BRAND / PRODUCT:\n${product}\n\nPERSONA (who is replying):\n${persona || "A helpful, experienced practitioner."}\n\nFor each Reddit thread below, write one reply draft. Return JSON only.\n\nTHREADS:\n${promptThreads}`;
-
-  let drafts = {};
-  try {
-    const resp = await client.messages.create({
-      model: "claude-opus-4-8",
-      max_tokens: 4000,
-      system,
-      messages: [{ role: "user", content: userMsg }],
-      output_config: { format: { type: "json_schema", schema: REPLY_SCHEMA } },
-    });
-    const text = resp.content.find((b) => b.type === "text")?.text || "{}";
-    const parsed = JSON.parse(text);
-    for (const r of parsed.replies || []) drafts[r.postId] = r;
-  } catch (e) {
-    return json({ error: "AI generation failed: " + (e.message || "unknown error") }, 502);
+  async function draftFor(p) {
+    const userMsg =
+      `BRAND / PRODUCT:\n${product}\n\n` +
+      `PERSONA (who is replying):\n${persona || "A helpful, experienced practitioner."}\n\n` +
+      `REDDIT THREAD:\n${p.subreddit} — "${p.title}"\n${(p.snippet || "(no body)").slice(0, 220)}\n\n` +
+      "Write ONE reply draft. Return JSON only.";
+    try {
+      const resp = await client.messages.create(
+        {
+          model: "claude-sonnet-4-6",
+          max_tokens: 400,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: "user", content: userMsg }],
+          output_config: { format: { type: "json_schema", schema: DRAFT_SCHEMA } },
+        },
+        { timeout: 7000 },
+      );
+      const text = resp.content.find((b) => b.type === "text")?.text || "{}";
+      const parsed = JSON.parse(text);
+      return { reply: parsed.reply || "", rationale: parsed.rationale || "" };
+    } catch {
+      return { reply: "", rationale: "" };
+    }
   }
 
-  const opportunities = scored.map((p) => ({
+  const drafts = await Promise.all(scored.map(draftFor));
+  const opportunities = scored.map((p, i) => ({
     ...p,
-    reply: drafts[p.id]?.reply || "",
-    rationale: drafts[p.id]?.rationale || "",
+    reply: drafts[i].reply,
+    rationale: drafts[i].rationale,
   }));
 
   return json({ opportunities });
