@@ -1,4 +1,8 @@
-# Static site — no build step. Serve files from the repo root.
+# ReplyRaddit — static frontend + serverless functions.
 [build]
   publish = "."
-  command = ""
+  command = "npm install"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

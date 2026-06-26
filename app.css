@@ -1,0 +1,63 @@
+/* App-specific styles, layered on top of styles.css */
+.app-body { background: var(--bg-alt); min-height: 100vh; display: flex; flex-direction: column; }
+.app-footer { margin-top: auto; }
+.user-email { font-size: 14px; color: var(--muted); margin-right: 4px; }
+
+/* Auth */
+.auth-wrap { flex: 1; display: grid; place-items: center; padding: 60px 24px; }
+.auth-card {
+  width: 100%; max-width: 420px; background: #fff; border: 1px solid var(--line);
+  border-radius: 18px; box-shadow: var(--shadow-lg); padding: 36px;
+}
+.auth-card h1 { font-size: 26px; }
+.auth-sub { color: var(--muted); margin: 8px 0 22px; font-size: 15px; }
+.auth-form { display: grid; gap: 16px; }
+.auth-form label, .gen-form label { display: grid; gap: 7px; font-weight: 600; color: var(--ink); font-size: 14px; }
+.auth-form input, .gen-form input {
+  font: inherit; font-weight: 400; padding: 12px 14px; border: 1.5px solid var(--line);
+  border-radius: 10px; outline: none; transition: border-color .15s;
+}
+.auth-form input:focus, .gen-form input:focus { border-color: var(--orange); }
+.auth-error { background: #fff1f1; border: 1px solid #ffd5d5; color: #c0392b; padding: 10px 12px; border-radius: 8px; font-size: 14px; font-weight: 500; }
+.auth-toggle { text-align: center; margin-top: 18px; color: var(--muted); font-size: 14px; }
+.auth-toggle a { color: var(--orange); font-weight: 600; }
+
+/* Dashboard */
+.dash { padding: 48px 0 80px; }
+.dash-head h1 { font-size: clamp(26px, 4vw, 36px); }
+.dash-head p { color: var(--muted); font-size: 17px; margin: 10px 0 28px; max-width: 640px; }
+.gen-form { display: grid; gap: 16px; }
+.gen-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.opt { color: var(--muted); font-weight: 400; }
+.gen-status { margin: 24px 0; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 12px; }
+.spinner { width: 20px; height: 20px; border: 3px solid var(--orange-soft); border-top-color: var(--orange); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.gen-status.error { color: #c0392b; }
+
+/* Results */
+.results { display: grid; gap: 18px; margin-top: 28px; }
+.opp { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px; }
+.opp-top { display: flex; gap: 16px; align-items: flex-start; }
+.opp-score { flex: none; width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; color: #fff; background: var(--ink); font-size: 17px; }
+.opp-score.hi { background: var(--orange); }
+.opp-meta { flex: 1; min-width: 0; }
+.opp-sub { font-size: 13px; color: var(--orange); font-weight: 700; }
+.opp-title { font-size: 17px; color: var(--ink); margin: 3px 0; }
+.opp-title a { color: inherit; }
+.opp-title a:hover { color: var(--orange); }
+.opp-stats { font-size: 13px; color: var(--muted); }
+.reply-draft { margin-top: 16px; background: var(--bg-alt); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.reply-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--orange); font-weight: 700; }
+.reply-draft textarea { width: 100%; font: inherit; font-size: 15px; color: var(--body); border: 0; background: transparent; resize: vertical; min-height: 92px; margin-top: 8px; outline: none; }
+.reply-rationale { font-size: 13px; color: var(--muted); font-style: italic; margin-top: 8px; }
+.reply-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.chip { font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; text-decoration: none; color: var(--ink); display: inline-flex; align-items: center; gap: 6px; }
+.chip:hover { border-color: var(--orange); color: var(--orange); }
+.chip-primary { background: var(--orange); color: #fff; border-color: var(--orange); }
+.chip-primary:hover { background: var(--orange-dark); color: #fff; }
+.chip.copied { background: #1d6f3f; color: #fff; border-color: #1d6f3f; }
+
+@media (max-width: 640px) {
+  .gen-grid { grid-template-columns: 1fr; }
+  .auth-card { padding: 26px; }
+}
