@@ -1,24 +1,85 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { verifyToken, bearer, json } from "./_auth.mjs";
 
-// ---- Reddit discovery (public JSON, read-only — no account/auth) ----
-// Reddit blocks requests without a real browser User-Agent (HTTP 403).
-const REDDIT_HOSTS = ["https://www.reddit.com", "https://old.reddit.com"];
+// ---- Reddit discovery (read-only) ----
+// Primary path: application-only OAuth against oauth.reddit.com — Reddit blocks
+// the unauthenticated public JSON endpoint from datacenter IPs (HTTP 403).
+// Reddit requires a unique, descriptive User-Agent.
+const REDDIT_UA =
+  process.env.REDDIT_USER_AGENT || "web:replyraddit:1.0 (by /u/replyraddit-app)";
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-async function searchReddit(keyword) {
-  const path =
-    "/search.json?q=" +
-    encodeURIComponent(keyword) +
-    "&sort=relevance&t=year&limit=15";
+// Token cache survives across warm Lambda invocations (Reddit tokens last ~1h).
+let tokenCache = { token: null, exp: 0 };
 
+async function getRedditToken() {
+  const id = process.env.REDDIT_CLIENT_ID;
+  const secret = process.env.REDDIT_CLIENT_SECRET;
+  if (!id || !secret) return null; // no creds → caller falls back to public endpoint
+
+  if (tokenCache.token && Date.now() < tokenCache.exp) return tokenCache.token;
+
+  const basic = Buffer.from(`${id}:${secret}`).toString("base64");
+  const res = await fetch("https://www.reddit.com/api/v1/access_token", {
+    method: "POST",
+    headers: {
+      authorization: "Basic " + basic,
+      "content-type": "application/x-www-form-urlencoded",
+      "user-agent": REDDIT_UA,
+    },
+    body: "grant_type=client_credentials",
+  });
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 140);
+    const err = new Error(
+      `Reddit authentication failed (HTTP ${res.status}). Check REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET. ${detail}`,
+    );
+    err.status = res.status;
+    throw err;
+  }
+  const data = await res.json();
+  tokenCache = {
+    token: data.access_token,
+    exp: Date.now() + ((data.expires_in || 3600) - 60) * 1000,
+  };
+  return tokenCache.token;
+}
+
+function parseChildren(data) {
+  return (data?.data?.children || [])
+    .map((c) => c.data)
+    .filter((p) => p && !p.over_18 && p.subreddit && p.title);
+}
+
+const SEARCH_QS =
+  (kw) =>
+    "?q=" +
+    encodeURIComponent(kw) +
+    "&sort=relevance&t=year&limit=15&type=link";
+
+async function searchReddit(keyword) {
+  // 1. OAuth path (robust — used whenever app credentials are configured).
+  const token = await getRedditToken();
+  if (token) {
+    const res = await fetch(
+      "https://oauth.reddit.com/search" + SEARCH_QS(keyword),
+      { headers: { authorization: "Bearer " + token, "user-agent": REDDIT_UA } },
+    );
+    if (res.ok) return parseChildren(await res.json().catch(() => null));
+    if (res.status === 401) tokenCache = { token: null, exp: 0 }; // expired/invalid → refresh next call
+    const err = new Error(`Reddit search failed (HTTP ${res.status}).`);
+    err.status = res.status;
+    throw err;
+  }
+
+  // 2. Public fallback (no credentials set) — may be 403'd from cloud IPs.
   let lastStatus = 0;
-  for (const host of REDDIT_HOSTS) {
+  for (const host of ["https://www.reddit.com", "https://old.reddit.com"]) {
     let res;
     try {
-      res = await fetch(host + path, {
+      res = await fetch(host + "/search.json" + SEARCH_QS(keyword), {
         headers: {
           "user-agent": BROWSER_UA,
           accept: "application/json, text/javascript, */*; q=0.01",
@@ -27,24 +88,17 @@ async function searchReddit(keyword) {
       });
     } catch {
       lastStatus = -1;
-      continue; // network error — try next host
+      continue;
     }
-    if (res.ok) {
-      const data = await res.json().catch(() => null);
-      return (data?.data?.children || [])
-        .map((c) => c.data)
-        .filter((p) => p && !p.over_18 && p.subreddit && p.title);
-    }
+    if (res.ok) return parseChildren(await res.json().catch(() => null));
     lastStatus = res.status;
-    // Only worth trying the fallback host on a block / rate-limit.
     if (res.status !== 403 && res.status !== 429) break;
   }
-
   const err = new Error(
     lastStatus === 403 || lastStatus === 429
-      ? "Reddit is temporarily blocking automated search from this server (HTTP " +
+      ? "Reddit is blocking unauthenticated search from this server (HTTP " +
         lastStatus +
-        "). This can happen from cloud IPs — please try again in a moment."
+        "). Add REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET in Netlify to enable OAuth access."
       : "Reddit search failed (HTTP " + lastStatus + ").",
   );
   err.status = lastStatus;
