@@ -2,19 +2,53 @@ import Anthropic from "@anthropic-ai/sdk";
 import { verifyToken, bearer, json } from "./_auth.mjs";
 
 // ---- Reddit discovery (public JSON, read-only — no account/auth) ----
+// Reddit blocks requests without a real browser User-Agent (HTTP 403).
+const REDDIT_HOSTS = ["https://www.reddit.com", "https://old.reddit.com"];
+const BROWSER_UA =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
 async function searchReddit(keyword) {
-  const url =
-    "https://www.reddit.com/search.json?q=" +
+  const path =
+    "/search.json?q=" +
     encodeURIComponent(keyword) +
     "&sort=relevance&t=year&limit=15";
-  const res = await fetch(url, {
-    headers: { "user-agent": "ReplyRaddit/1.0 (brand-safe reddit co-pilot)" },
-  });
-  if (!res.ok) throw new Error(`Reddit search failed (${res.status})`);
-  const data = await res.json();
-  return (data?.data?.children || [])
-    .map((c) => c.data)
-    .filter((p) => p && !p.over_18 && p.subreddit && p.title);
+
+  let lastStatus = 0;
+  for (const host of REDDIT_HOSTS) {
+    let res;
+    try {
+      res = await fetch(host + path, {
+        headers: {
+          "user-agent": BROWSER_UA,
+          accept: "application/json, text/javascript, */*; q=0.01",
+          "accept-language": "en-US,en;q=0.9",
+        },
+      });
+    } catch {
+      lastStatus = -1;
+      continue; // network error — try next host
+    }
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      return (data?.data?.children || [])
+        .map((c) => c.data)
+        .filter((p) => p && !p.over_18 && p.subreddit && p.title);
+    }
+    lastStatus = res.status;
+    // Only worth trying the fallback host on a block / rate-limit.
+    if (res.status !== 403 && res.status !== 429) break;
+  }
+
+  const err = new Error(
+    lastStatus === 403 || lastStatus === 429
+      ? "Reddit is temporarily blocking automated search from this server (HTTP " +
+        lastStatus +
+        "). This can happen from cloud IPs — please try again in a moment."
+      : "Reddit search failed (HTTP " + lastStatus + ").",
+  );
+  err.status = lastStatus;
+  throw err;
 }
 
 // ---- Multi-factor relevance scoring (relevance weighted highest) ----
@@ -92,6 +126,11 @@ export default async function handler(req) {
   try {
     posts = await searchReddit(keyword);
   } catch (e) {
+    // Reddit block / rate-limit: respond gracefully so the UI shows a clean,
+    // actionable message instead of a hard error.
+    if (e.status === 403 || e.status === 429) {
+      return json({ opportunities: [], note: e.message }, 200);
+    }
     return json({ error: e.message || "Reddit search failed." }, 502);
   }
   const scored = posts
