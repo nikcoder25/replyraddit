@@ -28,7 +28,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Poll the background search job until it finishes (or times out).
 async function pollJob(jobId, statusEl) {
-  const deadline = Date.now() + 90000; // ScraperAPI can take a while
+  const deadline = Date.now() + 210000; // ScraperAPI async can take a couple minutes
   let secs = 0;
   while (Date.now() < deadline) {
     await sleep(2000);

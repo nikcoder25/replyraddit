@@ -60,46 +60,73 @@ function extractChildren(rawText) {
   return (payload?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
 }
 
-// ScraperAPI — keyed residential proxy. Slow (8-12s) but reliable from cloud IPs,
-// so it gets a long timeout (only viable inside the background function).
-async function searchScraperAPI(keyword, timeoutMs) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ScraperAPI ASYNC API — the sync endpoint can't fetch Reddit within 30s, so we
+// submit a job and poll its status URL. We're inside a 15-min background
+// function, so there's room to wait. Targets old.reddit.com (lighter to scrape).
+async function searchScraperAPI(keyword) {
   const key = process.env.SCRAPERAPI_KEY;
   if (!key) { logSrc("scraperapi", { skipped: "no SCRAPERAPI_KEY set" }); return []; }
-  const target = REDDIT_SEARCH(keyword);
-  // Canonical ScraperAPI format: https://api.scraperapi.com/?api_key=KEY&url=ENCODED
-  const url =
-    "https://api.scraperapi.com/?api_key=" +
-    encodeURIComponent(key) +
-    "&url=" +
-    encodeURIComponent(target);
-  // Log the exact request (key redacted) + key length so we can see if it's empty.
-  logSrc("scraperapi:req", {
-    url: "https://api.scraperapi.com/?api_key=***&url=" + encodeURIComponent(target),
-    keyLen: key.length,
-    timeoutMs,
-  });
-  const started = Date.now();
+  const target =
+    "https://old.reddit.com/search.json?q=" +
+    encodeURIComponent(keyword) +
+    "&sort=relevance&t=year&limit=20";
+
+  // 1. Submit the async job.
+  let statusUrl;
   try {
-    const res = await fetchTimeout(url, { headers: { accept: "application/json" } }, timeoutMs);
-    const text = await res.text();
-    const ms = Date.now() - started;
-    if (!res.ok) {
-      // ScraperAPI returns the failure reason in the body (e.g. bad key, blocked).
-      logSrc("scraperapi", { status: res.status, ms, body: text.slice(0, 300) });
+    logSrc("scraperapi:submit", { target, keyLen: key.length });
+    const res = await fetchTimeout(
+      "https://async.scraperapi.com/jobs",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ apiKey: key, url: target }),
+      },
+      12000,
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || !data.id) {
+      logSrc("scraperapi:submit", { status: res.status, body: JSON.stringify(data).slice(0, 200) });
       return [];
     }
-    const rows = extractChildren(text);
-    logSrc("scraperapi", { status: res.status, ms, rows: rows.length });
-    return rows;
+    statusUrl = data.statusUrl || "https://async.scraperapi.com/jobs/" + data.id;
+    logSrc("scraperapi:submit", { status: res.status, jobId: data.id, jobStatus: data.status });
   } catch (e) {
-    logSrc("scraperapi", {
-      ms: Date.now() - started,
-      error: String(e?.message || e),
-      name: e?.name || "",
-      cause: String(e?.cause?.message || e?.cause || ""),
-    });
+    logSrc("scraperapi:submit", { error: String(e?.message || e), name: e?.name || "" });
     return [];
   }
+
+  // 2. Poll until finished / failed / timeout (~3 min).
+  const deadline = Date.now() + 180000;
+  let polls = 0;
+  while (Date.now() < deadline) {
+    await sleep(4000);
+    polls++;
+    let pd;
+    try {
+      const pr = await fetchTimeout(statusUrl, { headers: { accept: "application/json" } }, 12000);
+      pd = await pr.json().catch(() => null);
+    } catch (e) {
+      logSrc("scraperapi:poll", { polls, error: String(e?.message || e) });
+      continue;
+    }
+    if (!pd) continue;
+    if (pd.status === "finished") {
+      const httpStatus = pd.response?.statusCode;
+      const rows = extractChildren(pd.response?.body || "");
+      logSrc("scraperapi", { jobStatus: "finished", httpStatus, polls, rows: rows.length });
+      return rows;
+    }
+    if (pd.status === "failed") {
+      logSrc("scraperapi", { jobStatus: "failed", polls, body: JSON.stringify(pd).slice(0, 200) });
+      return [];
+    }
+    // still "running" → keep polling
+  }
+  logSrc("scraperapi", { error: "async job did not finish within 3 min", polls });
+  return [];
 }
 
 async function searchPullPush(keyword) {
@@ -155,10 +182,9 @@ async function nonEmpty(fn) {
 // Full search — races free sources (fast) and ScraperAPI (slow, generous
 // timeout). Whichever returns real threads first wins.
 export async function searchReddit(keyword, opts = {}) {
-  const scraperTimeout = opts.scraperTimeout || 8000;
   const redditUrl = REDDIT_SEARCH(keyword);
   const racers = [
-    nonEmpty(() => searchScraperAPI(keyword, scraperTimeout)),
+    nonEmpty(() => searchScraperAPI(keyword)),
     nonEmpty(() => searchPullPush(keyword)),
     ...PROXIES.map((p) => nonEmpty(() => fetchProxyReddit(p, redditUrl))),
   ];
