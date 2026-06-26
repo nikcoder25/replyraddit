@@ -64,19 +64,40 @@ function extractChildren(rawText) {
 // so it gets a long timeout (only viable inside the background function).
 async function searchScraperAPI(keyword, timeoutMs) {
   const key = process.env.SCRAPERAPI_KEY;
-  if (!key) return [];
+  if (!key) { logSrc("scraperapi", { skipped: "no SCRAPERAPI_KEY set" }); return []; }
+  const target = REDDIT_SEARCH(keyword);
+  // Canonical ScraperAPI format: https://api.scraperapi.com/?api_key=KEY&url=ENCODED
   const url =
     "https://api.scraperapi.com/?api_key=" +
     encodeURIComponent(key) +
-    "&country_code=us&url=" +
-    encodeURIComponent(REDDIT_SEARCH(keyword));
+    "&url=" +
+    encodeURIComponent(target);
+  // Log the exact request (key redacted) + key length so we can see if it's empty.
+  logSrc("scraperapi:req", {
+    url: "https://api.scraperapi.com/?api_key=***&url=" + encodeURIComponent(target),
+    keyLen: key.length,
+    timeoutMs,
+  });
+  const started = Date.now();
   try {
     const res = await fetchTimeout(url, { headers: { accept: "application/json" } }, timeoutMs);
-    const rows = res.ok ? extractChildren(await res.text()) : [];
-    logSrc("scraperapi", { status: res.status, rows: rows.length });
+    const text = await res.text();
+    const ms = Date.now() - started;
+    if (!res.ok) {
+      // ScraperAPI returns the failure reason in the body (e.g. bad key, blocked).
+      logSrc("scraperapi", { status: res.status, ms, body: text.slice(0, 300) });
+      return [];
+    }
+    const rows = extractChildren(text);
+    logSrc("scraperapi", { status: res.status, ms, rows: rows.length });
     return rows;
   } catch (e) {
-    logSrc("scraperapi", { error: String(e?.message || e) });
+    logSrc("scraperapi", {
+      ms: Date.now() - started,
+      error: String(e?.message || e),
+      name: e?.name || "",
+      cause: String(e?.cause?.message || e?.cause || ""),
+    });
     return [];
   }
 }
