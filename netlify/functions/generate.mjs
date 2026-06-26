@@ -71,7 +71,7 @@ async function searchPullPush(keyword) {
       const res = await fetchTimeout(
         url,
         { headers: { "user-agent": UA_POOL[attempt % UA_POOL.length], accept: "application/json" } },
-        6000,
+        4500,
       );
       if (res.ok) {
         const data = await res.json().catch(() => null);
@@ -92,10 +92,11 @@ async function searchPullPush(keyword) {
 
 // 1b. Arctic Shift — independent credential-free Reddit archive (Pushshift-like).
 async function searchArcticShift(keyword) {
+  // Arctic Shift has no `sort_type`; sending it returns 400. Use query + sort only.
   const url =
     "https://arctic-shift.photon-reddit.com/api/posts/search?query=" +
     encodeURIComponent(keyword) +
-    "&limit=25&sort=desc&sort_type=score";
+    "&limit=25&sort=desc";
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt) await SLEEP(250);
@@ -103,7 +104,7 @@ async function searchArcticShift(keyword) {
       const res = await fetchTimeout(
         url,
         { headers: { "user-agent": UA_POOL[attempt % UA_POOL.length], accept: "application/json" } },
-        6000,
+        4500,
       );
       if (res.ok) {
         const data = await res.json().catch(() => null);
@@ -131,35 +132,34 @@ async function nonEmpty(fn) {
 
 // 2. Public Reddit JSON with rotating User-Agents (often 403s from cloud IPs).
 async function searchPublicReddit(keyword) {
-  const qs =
-    "/search.json?q=" + encodeURIComponent(keyword) + "&sort=relevance&t=year&limit=20";
-  for (const host of ["https://www.reddit.com", "https://old.reddit.com"]) {
-    for (let i = 0; i < UA_POOL.length; i++) {
-      let res;
-      try {
-        res = await fetchTimeout(
-          host + qs,
-          {
-            headers: {
-              "user-agent": UA_POOL[i],
-              accept: "application/json, text/javascript, */*; q=0.01",
-              "accept-language": "en-US,en;q=0.9",
-            },
-          },
-          4000,
-        );
-      } catch {
-        continue;
-      }
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        return (data?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
-      }
-      if (res.status !== 403 && res.status !== 429) return []; // hard failure, stop trying UAs
-      await SLEEP(250);
+  // Last resort only — almost always 403 from datacenter IPs, so keep it to one
+  // quick attempt to avoid blowing the function time budget.
+  const url =
+    "https://www.reddit.com/search.json?q=" +
+    encodeURIComponent(keyword) +
+    "&sort=relevance&t=year&limit=20";
+  try {
+    const res = await fetchTimeout(
+      url,
+      {
+        headers: {
+          "user-agent": UA_POOL[0],
+          accept: "application/json, text/javascript, */*; q=0.01",
+          "accept-language": "en-US,en;q=0.9",
+        },
+      },
+      2500,
+    );
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      return (data?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
     }
+    logSrc("public", { status: res.status });
+    return [];
+  } catch (e) {
+    logSrc("public", { error: String(e?.message || e) });
+    return [];
   }
-  return [];
 }
 
 // 3. Optional OAuth (only if app credentials happen to be configured).
@@ -204,24 +204,43 @@ async function searchOAuth(keyword) {
 
 // 1c. Reddit search via a public CORS proxy — the proxy fetches Reddit from its
 // own IP, sidestepping the datacenter-IP block on Netlify.
+// allorigins /get wraps the body in {"contents": "<json string>", ...}; the
+// raw endpoint can also return wrapped, so we always unwrap defensively.
 const PROXIES = [
-  { name: "allorigins", wrap: (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) },
+  { name: "allorigins", wrap: (u) => "https://api.allorigins.win/get?url=" + encodeURIComponent(u) },
   { name: "corsproxy", wrap: (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u) },
 ];
+
+function extractChildren(rawText) {
+  let payload = null;
+  try {
+    payload = JSON.parse(rawText);
+  } catch {
+    return [];
+  }
+  // Unwrap allorigins-style envelope: { contents: "<stringified reddit json>" }
+  if (payload && typeof payload.contents === "string") {
+    try {
+      payload = JSON.parse(payload.contents);
+    } catch {
+      return [];
+    }
+  }
+  return (payload?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
+}
 
 async function fetchProxyReddit(proxy, redditUrl) {
   try {
     const res = await fetchTimeout(
       proxy.wrap(redditUrl),
       { headers: { "user-agent": UA_POOL[0], accept: "application/json" } },
-      6000,
+      4500,
     );
     if (!res.ok) {
       logSrc("proxy:" + proxy.name, { status: res.status });
       return [];
     }
-    const data = await res.json().catch(() => null);
-    const rows = (data?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
+    const rows = extractChildren(await res.text());
     logSrc("proxy:" + proxy.name, { status: res.status, rows: rows.length });
     return rows;
   } catch (e) {
@@ -390,7 +409,7 @@ export default async function handler(req) {
           messages: [{ role: "user", content: userMsg }],
           output_config: { format: { type: "json_schema", schema: DRAFT_SCHEMA } },
         },
-        { timeout: 7000 },
+        { timeout: 6000 },
       );
       const text = resp.content.find((b) => b.type === "text")?.text || "{}";
       const parsed = JSON.parse(text);
