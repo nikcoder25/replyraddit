@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ReplyRaddit — Your AI Co-Pilot for Reddit Marketing</title>
+  <meta name="description" content="ReplyRaddit scans Reddit for conversations that match your brand, scores them by relevance, and drafts authentic, value-first replies you review and post. No account linking. No auto-posting. You stay in control." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%23ff4500'/%3E%3Ctext x='50' y='70' font-size='60' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'%3ER%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+  <!-- ===== Navbar ===== -->
+  <header class="nav" id="top">
+    <div class="container nav-inner">
+      <a href="#top" class="brand">
+        <span class="brand-mark">R</span>
+        <span class="brand-name">ReplyRaddit</span>
+      </a>
+      <nav class="nav-links" id="navLinks">
+        <a href="#features">Features</a>
+        <a href="#how">How it works</a>
+        <a href="#safety">Brand-safe</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <div class="nav-cta">
+        <a href="#" class="btn btn-ghost">Log in</a>
+        <a href="#pricing" class="btn btn-primary">Get started</a>
+      </div>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== Hero ===== -->
+  <section class="hero">
+    <div class="container hero-inner">
+      <div class="hero-copy">
+        <span class="pill">⚡ Powered by Claude — built for brand-safe growth</span>
+        <h1>Turn Reddit into your <span class="grad">#1 growth channel</span></h1>
+        <p class="lead">
+          ReplyRaddit is your AI co-pilot for Reddit marketing. It finds the conversations
+          where your customers already hang out, scores them by relevance, and drafts
+          authentic, value-first replies — so you show up helpful, not spammy.
+        </p>
+        <div class="hero-actions">
+          <a href="#pricing" class="btn btn-primary btn-lg">Start free trial</a>
+          <a href="#how" class="btn btn-outline btn-lg">See how it works →</a>
+        </div>
+        <ul class="hero-trust">
+          <li>✓ No Reddit account linking</li>
+          <li>✓ No auto-posting</li>
+          <li>✓ You review every reply</li>
+        </ul>
+      </div>
+      <div class="hero-visual">
+        <div class="mock-card">
+          <div class="mock-head">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <span class="mock-title">r/SaaS · matched opportunity</span>
+          </div>
+          <div class="mock-body">
+            <div class="score-row">
+              <div class="score-ring"><span>92</span></div>
+              <div>
+                <strong>High-intent thread found</strong>
+                <p>"What tools do you use to find customers without ads?"</p>
+              </div>
+            </div>
+            <div class="reply-box">
+              <span class="reply-label">Suggested reply · draft</span>
+              <p>Honestly, the biggest unlock for us was being genuinely useful in
+              threads like this instead of dropping links. We map keywords to live
+              discussions and only jump in where we can actually help…</p>
+              <div class="reply-actions">
+                <button class="chip chip-primary">Copy &amp; post</button>
+                <button class="chip">Regenerate</button>
+                <button class="chip">Edit tone</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="logos">
+      <div class="container">
+        <p class="logos-label">Trusted by founders, marketers, and growth teams</p>
+        <div class="logos-row">
+          <span>Indie Hackers</span><span>SaaS Founders</span><span>Growth Teams</span>
+          <span>Agencies</span><span>Solopreneurs</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Problem ===== -->
+  <section class="section problem">
+    <div class="container">
+      <h2 class="section-title">Reddit is where buyers research — and where most brands get it wrong</h2>
+      <p class="section-sub">Drop a link and you get downvoted or banned. Stay silent and your competitors win the thread. ReplyRaddit helps you be the helpful voice that earns trust and traffic.</p>
+      <div class="grid grid-3">
+        <div class="card problem-card">
+          <div class="emoji">🚫</div>
+          <h3>Manual hunting burns hours</h3>
+          <p>Scrolling subreddits for relevant posts is slow and easy to miss the threads that actually convert.</p>
+        </div>
+        <div class="card problem-card">
+          <div class="emoji">😬</div>
+          <h3>Self-promo gets you banned</h3>
+          <p>Reddit punishes obvious marketing. One bad reply can torch your account and your reputation.</p>
+        </div>
+        <div class="card problem-card">
+          <div class="emoji">⏳</div>
+          <h3>Good replies take real effort</h3>
+          <p>Writing authentic, on-brand responses at scale is hard to sustain without a system.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== How it works ===== -->
+  <section class="section alt" id="how">
+    <div class="container">
+      <span class="eyebrow">How it works</span>
+      <h2 class="section-title">From brand to brilliant reply in four steps</h2>
+      <div class="steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <h3>Brand analysis</h3>
+          <p>Add your website and ReplyRaddit learns your product, voice, and value props automatically.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">2</span>
+          <h3>Persona setup</h3>
+          <p>Share your expertise and work history so every reply sounds credible and authentically you.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">3</span>
+          <h3>Smart discovery</h3>
+          <p>We scan hot, rising, and new posts, then score each with multi-factor relevance to surface the conversations worth your time.</p>
+        </div>
+        <div class="step">
+          <span class="step-num">4</span>
+          <h3>Reply generation</h3>
+          <p>Get human-sounding draft replies that follow each subreddit's rules. Review, tweak, and post — you're always in control.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Features ===== -->
+  <section class="section" id="features">
+    <div class="container">
+      <span class="eyebrow">Features</span>
+      <h2 class="section-title">Everything you need to win on Reddit</h2>
+      <div class="grid grid-3">
+        <div class="card feature">
+          <div class="feat-icon">🎯</div>
+          <h3>Relevance scoring engine</h3>
+          <p>Every opportunity is scored across multiple factors — with relevance weighted highest — so you act on the threads most likely to convert.</p>
+        </div>
+        <div class="card feature">
+          <div class="feat-icon">🤖</div>
+          <h3>AI-drafted replies</h3>
+          <p>Authentic, value-first responses generated from your brand and persona — never generic copy-paste spam.</p>
+        </div>
+        <div class="card feature">
+          <div class="feat-icon">🔍</div>
+          <h3>Keyword &amp; subreddit tracking</h3>
+          <p>Tell us what matters and we continuously monitor the right communities for new openings.</p>
+        </div>
+        <div class="card feature">
+          <div class="feat-icon">🛡️</div>
+          <h3>Subreddit rule awareness</h3>
+          <p>Drafts respect each community's culture and rules, so you stay welcome instead of removed.</p>
+        </div>
+        <div class="card feature">
+          <div class="feat-icon">🎚️</div>
+          <h3>Tone &amp; persona controls</h3>
+          <p>Dial replies from casual to expert, regenerate variations, and keep a consistent brand voice.</p>
+        </div>
+        <div class="card feature">
+          <div class="feat-icon">📊</div>
+          <h3>Opportunity dashboard</h3>
+          <p>All your matched threads, scores, and drafts in one place — sorted by what to do next.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Brand safety ===== -->
+  <section class="section alt" id="safety">
+    <div class="container safety-inner">
+      <div class="safety-copy">
+        <span class="eyebrow">Brand-safe by design</span>
+        <h2 class="section-title left">Your account stays yours. Always.</h2>
+        <p class="section-sub left">ReplyRaddit is a discovery and drafting co-pilot — not an autopilot. The human stays in the loop on every single reply.</p>
+        <ul class="check-list">
+          <li><strong>No account linking.</strong> We only read public Reddit content. You never hand over your credentials.</li>
+          <li><strong>No auto-posting.</strong> Nothing is ever posted on your behalf. You review and publish manually.</li>
+          <li><strong>ToS-friendly workflow.</strong> Stay compliant with Reddit's terms and each subreddit's rules.</li>
+          <li><strong>You own the voice.</strong> Edit any draft before it goes live so it always sounds like you.</li>
+        </ul>
+      </div>
+      <div class="safety-card">
+        <div class="safety-stat"><span class="big">0</span><span>accounts linked</span></div>
+        <div class="safety-stat"><span class="big">100%</span><span>human-reviewed</span></div>
+        <div class="safety-stat"><span class="big">∞</span><span>control over your voice</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Testimonials ===== -->
+  <section class="section">
+    <div class="container">
+      <h2 class="section-title">Loved by people who grow without ad budgets</h2>
+      <div class="grid grid-3">
+        <figure class="card quote">
+          <p>"We went from ignoring Reddit to it being our top organic channel. The scoring saves me from wasting time on dead threads."</p>
+          <figcaption><span class="avatar">A</span> Ava R. · SaaS founder</figcaption>
+        </figure>
+        <figure class="card quote">
+          <p>"The drafts actually sound human. I tweak a sentence and post. It's like having a Reddit-savvy teammate."</p>
+          <figcaption><span class="avatar">M</span> Marcus T. · Growth marketer</figcaption>
+        </figure>
+        <figure class="card quote">
+          <p>"No account linking was the dealbreaker for us. Finally a tool that respects how Reddit actually works."</p>
+          <figcaption><span class="avatar">L</span> Lena P. · Agency owner</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Pricing ===== -->
+  <section class="section alt" id="pricing">
+    <div class="container">
+      <span class="eyebrow">Pricing</span>
+      <h2 class="section-title">Simple plans that scale with you</h2>
+      <p class="section-sub">Start with a free trial. Upgrade when Reddit becomes your favorite channel.</p>
+      <div class="grid grid-3 pricing-grid">
+        <div class="card price-card">
+          <h3>Solopreneur</h3>
+          <div class="price"><span class="amount">$49</span><span class="per">/mo</span></div>
+          <p class="price-note">For founders doing it themselves.</p>
+          <ul class="check-list small">
+            <li>1 project / brand</li>
+            <li>Daily opportunity scans</li>
+            <li>Unlimited AI reply drafts</li>
+            <li>Relevance scoring</li>
+            <li>Email support</li>
+          </ul>
+          <a href="#" class="btn btn-outline full">Start free trial</a>
+        </div>
+        <div class="card price-card featured">
+          <span class="badge">Most popular</span>
+          <h3>Growing Business</h3>
+          <div class="price"><span class="amount">$199</span><span class="per">/mo</span></div>
+          <p class="price-note">For teams getting serious about Reddit.</p>
+          <ul class="check-list small">
+            <li>Up to 5 projects / brands</li>
+            <li>Priority discovery &amp; scoring</li>
+            <li>Unlimited AI reply drafts</li>
+            <li>Tone &amp; persona controls</li>
+            <li>Priority support</li>
+          </ul>
+          <a href="#" class="btn btn-primary full">Start free trial</a>
+        </div>
+        <div class="card price-card">
+          <h3>Agency / Team</h3>
+          <div class="price"><span class="amount">$799</span><span class="per">/mo</span></div>
+          <p class="price-note">For agencies managing many brands.</p>
+          <ul class="check-list small">
+            <li>Unlimited projects / brands</li>
+            <li>Team seats &amp; collaboration</li>
+            <li>Highest scan priority</li>
+            <li>Dedicated success manager</li>
+            <li>Onboarding &amp; training</li>
+          </ul>
+          <a href="#" class="btn btn-outline full">Talk to sales</a>
+        </div>
+      </div>
+      <p class="ltd-note">💡 Prefer to pay once? Lifetime deals available from <strong>$59</strong> — limited time.</p>
+    </div>
+  </section>
+
+  <!-- ===== FAQ ===== -->
+  <section class="section" id="faq">
+    <div class="container narrow">
+      <h2 class="section-title">Frequently asked questions</h2>
+      <div class="faq">
+        <details>
+          <summary>Do I have to connect my Reddit account?</summary>
+          <p>No. ReplyRaddit only reads public Reddit content to find opportunities. You never link your account or share credentials, which keeps your account safe.</p>
+        </details>
+        <details>
+          <summary>Does it post replies automatically?</summary>
+          <p>Never. We generate drafts for you to review. You decide what to edit and what to post manually, keeping you fully compliant with Reddit's terms.</p>
+        </details>
+        <details>
+          <summary>How does the relevance scoring work?</summary>
+          <p>Each post is evaluated across multiple factors — topic relevance carries the most weight — so the highest-intent conversations rise to the top of your dashboard.</p>
+        </details>
+        <details>
+          <summary>Will the replies sound like marketing?</summary>
+          <p>No. Drafts are built from your brand and persona to be genuinely helpful and value-first. You can adjust tone and regenerate until it sounds like you.</p>
+        </details>
+        <details>
+          <summary>Can I cancel anytime?</summary>
+          <p>Yes. Plans are month-to-month and you can cancel whenever you like. Lifetime deals are a one-time payment with no recurring fees.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Final CTA ===== -->
+  <section class="cta-final">
+    <div class="container cta-inner">
+      <h2>Be the most helpful voice in every thread</h2>
+      <p>Start finding and replying to your best Reddit opportunities today.</p>
+      <a href="#pricing" class="btn btn-primary btn-lg">Start your free trial</a>
+    </div>
+  </section>
+
+  <!-- ===== Footer ===== -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="#top" class="brand">
+          <span class="brand-mark">R</span>
+          <span class="brand-name">ReplyRaddit</span>
+        </a>
+        <p>Your AI co-pilot for brand-safe Reddit marketing.</p>
+      </div>
+      <div class="footer-cols">
+        <div>
+          <h4>Product</h4>
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#faq">FAQ</a>
+        </div>
+        <div>
+          <h4>Company</h4>
+          <a href="#">About</a>
+          <a href="#">Blog</a>
+          <a href="#">Contact</a>
+        </div>
+        <div>
+          <h4>Legal</h4>
+          <a href="#">Privacy</a>
+          <a href="#">Terms</a>
+          <a href="#">Reddit policy</a>
+        </div>
+      </div>
+    </div>
+    <div class="container footer-bottom">
+      <p>© <span id="year"></span> ReplyRaddit. Not affiliated with or endorsed by Reddit, Inc.</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
