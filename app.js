@@ -24,6 +24,25 @@ async function api(path, body, auth = false) {
   return data;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Poll the background search job until it finishes (or times out).
+async function pollJob(jobId, statusEl) {
+  const deadline = Date.now() + 90000; // ScraperAPI can take a while
+  let secs = 0;
+  while (Date.now() < deadline) {
+    await sleep(2000);
+    secs += 2;
+    const rec = await api("/job-status", { jobId }, true);
+    if (rec.status === "done" || rec.status === "empty") return rec;
+    if (rec.status === "error") throw new Error(rec.error || "Search failed.");
+    if (statusEl)
+      statusEl.innerHTML =
+        '<span class="spinner"></span> Scanning Reddit for opportunities… (' + secs + 's)';
+  }
+  throw new Error("Search timed out — please try again or use a broader keyword.");
+}
+
 // ---- view switching ----
 function showApp(email) {
   $("authView").hidden = true;
@@ -98,15 +117,16 @@ $("genForm").addEventListener("submit", async (e) => {
   const product = $("product").value;
   const persona = $("persona").value;
   try {
-    const data = await api(
-      "/generate",
-      { keyword: $("keyword").value, product, persona },
-      true,
-    );
+    const jobId =
+      (crypto.randomUUID && crypto.randomUUID()) ||
+      Date.now() + "-" + Math.floor(Math.random() * 1e9);
+    // Kick off the background search (returns 202 immediately), then poll.
+    await api("/generate-background", { jobId, keyword: $("keyword").value }, true);
+    const rec = await pollJob(jobId, status);
     status.hidden = true;
-    const opps = data.opportunities || [];
+    const opps = rec.opportunities || [];
     if (!opps.length) {
-      results.innerHTML = `<p class="gen-status">${escapeHtml(data.note || "No opportunities found. Try a different keyword.")}</p>`;
+      results.innerHTML = `<p class="gen-status">${escapeHtml(rec.note || "No opportunities found. Try a different keyword.")}</p>`;
       return;
     }
     renderOpportunities(opps, product, persona);

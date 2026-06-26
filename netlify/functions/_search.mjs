@@ -1,9 +1,5 @@
-// Discovery only — finds and scores Reddit threads. AI drafting is a separate,
-// fast per-thread request (draft.mjs), so a slow proxy here never competes with
-// AI time against Netlify's function timeout.
-import { verifyToken, bearer, json } from "./_auth.mjs";
-
-async function fetchTimeout(url, opts = {}, ms = 4000) {
+// Shared Reddit discovery + scoring, used by the background search function.
+export async function fetchTimeout(url, opts = {}, ms = 4000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
@@ -13,7 +9,7 @@ async function fetchTimeout(url, opts = {}, ms = 4000) {
   }
 }
 
-function logSrc(source, info) {
+export function logSrc(source, info) {
   try {
     console.log("[reddit] " + source + " " + JSON.stringify(info));
   } catch {
@@ -64,21 +60,19 @@ function extractChildren(rawText) {
   return (payload?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
 }
 
-// --- Sources (credential-free unless noted) ---
-
-// ScraperAPI — keyed residential proxy; the most reliable from cloud IPs.
-async function searchScraperAPI(keyword) {
+// ScraperAPI — keyed residential proxy. Slow (8-12s) but reliable from cloud IPs,
+// so it gets a long timeout (only viable inside the background function).
+async function searchScraperAPI(keyword, timeoutMs) {
   const key = process.env.SCRAPERAPI_KEY;
-  if (!key) return []; // not configured → skip instantly
+  if (!key) return [];
   const url =
     "https://api.scraperapi.com/?api_key=" +
     encodeURIComponent(key) +
-    "&url=" +
+    "&country_code=us&url=" +
     encodeURIComponent(REDDIT_SEARCH(keyword));
   try {
-    const res = await fetchTimeout(url, { headers: { accept: "application/json" } }, 8000);
-    if (!res.ok) { logSrc("scraperapi", { status: res.status }); return []; }
-    const rows = extractChildren(await res.text());
+    const res = await fetchTimeout(url, { headers: { accept: "application/json" } }, timeoutMs);
+    const rows = res.ok ? extractChildren(await res.text()) : [];
     logSrc("scraperapi", { status: res.status, rows: rows.length });
     return rows;
   } catch (e) {
@@ -87,7 +81,6 @@ async function searchScraperAPI(keyword) {
   }
 }
 
-// PullPush.io — Pushshift successor (single quick attempt).
 async function searchPullPush(keyword) {
   const url =
     "https://api.pullpush.io/reddit/search/submission/?q=" +
@@ -110,8 +103,6 @@ async function searchPullPush(keyword) {
   }
 }
 
-// Public CORS proxies — fetch Reddit from the proxy's IP. allorigins gets a
-// longer timeout because it's the one that actually reaches Reddit.
 const PROXIES = [
   { name: "allorigins", timeout: 7500, wrap: (u) => "https://api.allorigins.win/get?url=" + encodeURIComponent(u) },
   { name: "corsproxy", timeout: 3500, wrap: (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u) },
@@ -134,81 +125,34 @@ async function fetchProxyReddit(proxy, redditUrl) {
   }
 }
 
-// Optional app-only OAuth (only if creds are configured).
-let tokenCache = { token: null, exp: 0 };
-async function searchOAuth(keyword) {
-  const id = process.env.REDDIT_CLIENT_ID;
-  const secret = process.env.REDDIT_CLIENT_SECRET;
-  if (!id || !secret) return [];
-  if (!(tokenCache.token && Date.now() < tokenCache.exp)) {
-    const basic = Buffer.from(`${id}:${secret}`).toString("base64");
-    const tr = await fetchTimeout(
-      "https://www.reddit.com/api/v1/access_token",
-      {
-        method: "POST",
-        headers: {
-          authorization: "Basic " + basic,
-          "content-type": "application/x-www-form-urlencoded",
-          "user-agent": REDDIT_UA,
-        },
-        body: "grant_type=client_credentials",
-      },
-      3000,
-    );
-    if (!tr.ok) return [];
-    const td = await tr.json();
-    tokenCache = { token: td.access_token, exp: Date.now() + ((td.expires_in || 3600) - 60) * 1000 };
-  }
-  const res = await fetchTimeout(
-    "https://oauth.reddit.com/search?q=" +
-      encodeURIComponent(keyword) +
-      "&sort=relevance&t=year&limit=20&type=link",
-    { headers: { authorization: "Bearer " + tokenCache.token, "user-agent": REDDIT_UA } },
-    3500,
-  );
-  if (!res.ok) {
-    if (res.status === 401) tokenCache = { token: null, exp: 0 };
-    return [];
-  }
-  const data = await res.json().catch(() => null);
-  return (data?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
-}
-
 async function nonEmpty(fn) {
   const rows = await fn();
   if (rows && rows.length) return rows;
   throw new Error("no rows");
 }
 
-async function searchReddit(keyword) {
+// Full search — races free sources (fast) and ScraperAPI (slow, generous
+// timeout). Whichever returns real threads first wins.
+export async function searchReddit(keyword, opts = {}) {
+  const scraperTimeout = opts.scraperTimeout || 8000;
   const redditUrl = REDDIT_SEARCH(keyword);
-  // Race all sources — fastest with results wins; latency bounded by the
-  // slowest single timeout (only if all fail), never the sum.
   const racers = [
-    nonEmpty(() => searchScraperAPI(keyword)),
+    nonEmpty(() => searchScraperAPI(keyword, scraperTimeout)),
     nonEmpty(() => searchPullPush(keyword)),
     ...PROXIES.map((p) => nonEmpty(() => fetchProxyReddit(p, redditUrl))),
   ];
   try {
     return await Promise.any(racers);
   } catch {
-    logSrc("phase1", { result: "all sources failed or empty" });
+    logSrc("result", { outcome: "ALL sources failed" });
+    const err = new Error(
+      "Couldn't reach a Reddit data source right now. Please try again in a moment.",
+    );
+    err.status = 502;
+    throw err;
   }
-  try {
-    const rows = await searchOAuth(keyword);
-    if (rows && rows.length) { logSrc("oauth", { rows: rows.length }); return rows; }
-  } catch (e) {
-    logSrc("oauth", { error: String(e?.message || e) });
-  }
-  logSrc("result", { outcome: "ALL sources failed" });
-  const err = new Error(
-    "Couldn't reach a Reddit data source right now. Please try again in a moment.",
-  );
-  err.status = 502;
-  throw err;
 }
 
-// ---- Multi-factor relevance scoring (relevance weighted highest) ----
 function scorePost(post, keyword) {
   const kw = keyword.toLowerCase();
   const title = (post.title || "").toLowerCase();
@@ -231,27 +175,8 @@ function scorePost(post, keyword) {
   return Math.round(score * 100);
 }
 
-export default async function handler(req) {
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  const payload = verifyToken(bearer(req));
-  if (!payload) return json({ error: "Not authenticated" }, 401);
-
-  let body;
-  try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
-  const keyword = String(body.keyword || "").trim();
-  if (!keyword) return json({ error: "Enter a keyword or topic." }, 400);
-
-  let posts;
-  try {
-    posts = await searchReddit(keyword);
-  } catch (e) {
-    if (e.status === 403 || e.status === 429) {
-      return json({ opportunities: [], note: e.message }, 200);
-    }
-    return json({ error: e.message || "Reddit search failed." }, 502);
-  }
-
-  const opportunities = posts
+export function rankOpportunities(posts, keyword) {
+  return posts
     .map((p) => ({
       id: p.id,
       title: p.title,
@@ -263,9 +188,4 @@ export default async function handler(req) {
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
-
-  if (opportunities.length === 0) {
-    return json({ opportunities: [], note: "No matching Reddit threads found. Try a broader keyword." });
-  }
-  return json({ opportunities });
 }
