@@ -91,22 +91,25 @@ $("genForm").addEventListener("submit", async (e) => {
   results.innerHTML = "";
   status.hidden = false;
   status.className = "gen-status";
-  status.innerHTML = '<span class="spinner"></span> Scanning Reddit and drafting replies… this can take 15–30s.';
+  status.innerHTML = '<span class="spinner"></span> Scanning Reddit for opportunities…';
   const btn = $("genSubmit");
   btn.disabled = true;
 
+  const product = $("product").value;
+  const persona = $("persona").value;
   try {
     const data = await api(
       "/generate",
-      {
-        keyword: $("keyword").value,
-        product: $("product").value,
-        persona: $("persona").value,
-      },
+      { keyword: $("keyword").value, product, persona },
       true,
     );
     status.hidden = true;
-    renderResults(data.opportunities || [], data.note);
+    const opps = data.opportunities || [];
+    if (!opps.length) {
+      results.innerHTML = `<p class="gen-status">${escapeHtml(data.note || "No opportunities found. Try a different keyword.")}</p>`;
+      return;
+    }
+    renderOpportunities(opps, product, persona);
   } catch (e2) {
     if (/not authenticated/i.test(e2.message)) {
       clearToken();
@@ -120,12 +123,8 @@ $("genForm").addEventListener("submit", async (e) => {
   }
 });
 
-function renderResults(opps, note) {
+function renderOpportunities(opps, product, persona) {
   const results = $("results");
-  if (!opps.length) {
-    results.innerHTML = `<p class="gen-status">${note || "No opportunities found. Try a different keyword."}</p>`;
-    return;
-  }
   results.innerHTML = "";
   for (const o of opps) {
     const el = document.createElement("div");
@@ -141,26 +140,38 @@ function renderResults(opps, note) {
       </div>
       <div class="reply-draft">
         <span class="reply-label">Suggested reply · draft</span>
-        <textarea>${escapeHtml(o.reply || "(no draft generated)")}</textarea>
-        ${o.rationale ? `<div class="reply-rationale">Why: ${escapeHtml(o.rationale)}</div>` : ""}
-        <div class="reply-actions">
-          <button class="chip chip-primary" data-copy>Copy reply</button>
-          <a class="chip" href="${o.url}" target="_blank" rel="noopener">Open thread ↗</a>
-        </div>
+        <div class="draft-slot"><span class="spinner"></span> Drafting reply…</div>
       </div>`;
-    const copyBtn = el.querySelector("[data-copy]");
-    const ta = el.querySelector("textarea");
-    copyBtn.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(ta.value);
-      copyBtn.textContent = "Copied ✓";
-      copyBtn.classList.add("copied");
-      setTimeout(() => {
-        copyBtn.textContent = "Copy reply";
-        copyBtn.classList.remove("copied");
-      }, 1600);
-    });
     results.appendChild(el);
+
+    const slot = el.querySelector(".draft-slot");
+    api("/draft", { title: o.title, subreddit: o.subreddit, snippet: o.snippet, product, persona }, true)
+      .then((d) => fillDraft(slot, d.reply || "", d.rationale || "", o.url))
+      .catch((err) => {
+        slot.innerHTML = `<div class="reply-rationale">Couldn't draft a reply: ${escapeHtml(err.message)}</div>`;
+      });
   }
+}
+
+function fillDraft(slot, reply, rationale, url) {
+  slot.innerHTML = `
+    <textarea>${escapeHtml(reply || "(no draft generated)")}</textarea>
+    ${rationale ? `<div class="reply-rationale">Why: ${escapeHtml(rationale)}</div>` : ""}
+    <div class="reply-actions">
+      <button class="chip chip-primary" data-copy>Copy reply</button>
+      <a class="chip" href="${url}" target="_blank" rel="noopener">Open thread ↗</a>
+    </div>`;
+  const copyBtn = slot.querySelector("[data-copy]");
+  const ta = slot.querySelector("textarea");
+  copyBtn.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(ta.value);
+    copyBtn.textContent = "Copied ✓";
+    copyBtn.classList.add("copied");
+    setTimeout(() => {
+      copyBtn.textContent = "Copy reply";
+      copyBtn.classList.remove("copied");
+    }, 1600);
+  });
 }
 
 function escapeHtml(s) {

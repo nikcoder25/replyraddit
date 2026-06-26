@@ -61,3 +61,6 @@
   .gen-grid { grid-template-columns: 1fr; }
   .auth-card { padding: 26px; }
 }
+
+/* Per-thread draft loading slot */
+.draft-slot { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; font-weight: 600; padding: 8px 0; }
