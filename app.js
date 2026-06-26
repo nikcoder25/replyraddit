@@ -43,6 +43,68 @@ async function pollJob(jobId, statusEl) {
   throw new Error("Search timed out — please try again or use a broader keyword.");
 }
 
+// Fetch Reddit search results from the browser via JSONP (script tag) — runs on
+// the user's residential IP, so it sidesteps the datacenter-IP block and CORS.
+function redditJSONP(keyword) {
+  return new Promise((resolve, reject) => {
+    const cb = "rr_cb_" + Math.random().toString(36).slice(2);
+    const url =
+      "https://www.reddit.com/search.json?q=" +
+      encodeURIComponent(keyword) +
+      "&sort=relevance&t=year&limit=20&raw_json=1&jsonp=" +
+      cb;
+    const script = document.createElement("script");
+    let done = false;
+    const timer = setTimeout(() => finish(() => reject(new Error("Reddit request timed out"))), 12000);
+    function cleanup() {
+      clearTimeout(timer);
+      try { delete window[cb]; } catch (_) { window[cb] = undefined; }
+      script.remove();
+    }
+    function finish(fn) { if (done) return; done = true; cleanup(); fn(); }
+    window[cb] = (data) =>
+      finish(() => resolve((data && data.data && data.data.children) || []));
+    script.onerror = () => finish(() => reject(new Error("Reddit request failed")));
+    script.src = url;
+    document.head.appendChild(script);
+  });
+}
+
+function scoreClient(post, keyword) {
+  const kw = keyword.toLowerCase();
+  const title = (post.title || "").toLowerCase();
+  const body = (post.selftext || "").toLowerCase();
+  let relevance = 0;
+  if (title.includes(kw)) relevance += 1;
+  for (const w of kw.split(/\s+/).filter(Boolean)) {
+    if (title.includes(w)) relevance += 0.25;
+    if (body.includes(w)) relevance += 0.1;
+  }
+  relevance = Math.min(relevance, 1);
+  const ageDays = (Date.now() / 1000 - (post.created_utc || 0)) / 86400;
+  const recency = Math.max(0, 1 - ageDays / 365);
+  const engagement = Math.min(1, Math.log10((post.num_comments || 0) + 1) / 2);
+  const isQuestion = /\?|how|what|which|recommend|looking for|best/i.test(post.title) ? 1 : 0.4;
+  return Math.round((0.7 * relevance + 0.12 * recency + 0.1 * engagement + 0.08 * isQuestion) * 100);
+}
+
+function rankClient(children, keyword) {
+  return (children || [])
+    .map((c) => c && c.data)
+    .filter((p) => p && !p.over_18 && p.subreddit && p.title)
+    .map((p) => ({
+      id: p.id,
+      title: p.title,
+      subreddit: "r/" + p.subreddit,
+      url: "https://www.reddit.com" + p.permalink,
+      snippet: (p.selftext || "").slice(0, 400),
+      comments: p.num_comments || 0,
+      score: scoreClient(p, keyword),
+    }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}
+
 // ---- view switching ----
 function showApp(email) {
   $("authView").hidden = true;
@@ -116,19 +178,36 @@ $("genForm").addEventListener("submit", async (e) => {
 
   const product = $("product").value;
   const persona = $("persona").value;
+  const keyword = $("keyword").value.trim();
   try {
-    const jobId =
-      (crypto.randomUUID && crypto.randomUUID()) ||
-      Date.now() + "-" + Math.floor(Math.random() * 1e9);
-    // Kick off the background search (returns 202 immediately), then poll.
-    await api("/generate-background", { jobId, keyword: $("keyword").value }, true);
-    const rec = await pollJob(jobId, status);
-    status.hidden = true;
-    const opps = rec.opportunities || [];
-    if (!opps.length) {
-      results.innerHTML = `<p class="gen-status">${escapeHtml(rec.note || "No opportunities found. Try a different keyword.")}</p>`;
-      return;
+    let opps = [];
+
+    // Primary: fetch Reddit from the user's browser (residential IP) via JSONP —
+    // bypasses Reddit's datacenter-IP block and CORS. No server, no scraper.
+    try {
+      const children = await redditJSONP(keyword);
+      opps = rankClient(children, keyword);
+    } catch (_) {
+      /* JSONP unavailable/blocked — fall through to the server fallback */
     }
+
+    // Fallback: server-side background search (proxies / ScraperAPI).
+    if (!opps.length) {
+      status.innerHTML = '<span class="spinner"></span> Searching… (server fallback, can take a minute)';
+      const jobId =
+        (crypto.randomUUID && crypto.randomUUID()) ||
+        Date.now() + "-" + Math.floor(Math.random() * 1e9);
+      await api("/generate-background", { jobId, keyword }, true);
+      const rec = await pollJob(jobId, status);
+      opps = rec.opportunities || [];
+      if (!opps.length) {
+        status.hidden = true;
+        results.innerHTML = `<p class="gen-status">${escapeHtml(rec.note || "No opportunities found. Try a different keyword.")}</p>`;
+        return;
+      }
+    }
+
+    status.hidden = true;
     renderOpportunities(opps, product, persona);
   } catch (e2) {
     if (/not authenticated/i.test(e2.message)) {
