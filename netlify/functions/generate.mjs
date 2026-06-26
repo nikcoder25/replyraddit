@@ -20,6 +20,15 @@ async function fetchTimeout(url, opts = {}, ms = 4000) {
   }
 }
 
+// Structured logging — visible in the Netlify Functions log for the request.
+function logSrc(source, info) {
+  try {
+    console.log("[reddit] " + source + " " + JSON.stringify(info));
+  } catch {
+    console.log("[reddit] " + source);
+  }
+}
+
 const UA_POOL = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
@@ -67,11 +76,14 @@ async function searchPullPush(keyword) {
       if (res.ok) {
         const data = await res.json().catch(() => null);
         const rows = (data?.data || []).map(normalize).filter(Boolean);
+        logSrc("pullpush", { status: res.status, rows: rows.length });
         return rows;
       }
+      logSrc("pullpush", { status: res.status });
       lastErr = new Error(`PullPush HTTP ${res.status}`);
       if (res.status !== 429 && res.status < 500) break; // only retry rate-limit / server errors
     } catch (e) {
+      logSrc("pullpush", { error: String(e?.message || e) });
       lastErr = e;
     }
   }
@@ -95,11 +107,15 @@ async function searchArcticShift(keyword) {
       );
       if (res.ok) {
         const data = await res.json().catch(() => null);
-        return (data?.data || []).map(normalize).filter(Boolean);
+        const rows = (data?.data || []).map(normalize).filter(Boolean);
+        logSrc("arcticshift", { status: res.status, rows: rows.length });
+        return rows;
       }
+      logSrc("arcticshift", { status: res.status });
       lastErr = new Error(`ArcticShift HTTP ${res.status}`);
       if (res.status !== 429 && res.status < 500) break;
     } catch (e) {
+      logSrc("arcticshift", { error: String(e?.message || e) });
       lastErr = e;
     }
   }
@@ -186,34 +202,76 @@ async function searchOAuth(keyword) {
   return (data?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
 }
 
-async function searchReddit(keyword) {
-  // Phase 1: race the two credential-free archives — whichever returns real
-  // threads first wins, so one being slow or down doesn't hold up the request.
+// 1c. Reddit search via a public CORS proxy — the proxy fetches Reddit from its
+// own IP, sidestepping the datacenter-IP block on Netlify.
+const PROXIES = [
+  { name: "allorigins", wrap: (u) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u) },
+  { name: "corsproxy", wrap: (u) => "https://corsproxy.io/?url=" + encodeURIComponent(u) },
+];
+
+async function fetchProxyReddit(proxy, redditUrl) {
   try {
-    return await Promise.any([
-      nonEmpty(() => searchPullPush(keyword)),
-      nonEmpty(() => searchArcticShift(keyword)),
-    ]);
+    const res = await fetchTimeout(
+      proxy.wrap(redditUrl),
+      { headers: { "user-agent": UA_POOL[0], accept: "application/json" } },
+      6000,
+    );
+    if (!res.ok) {
+      logSrc("proxy:" + proxy.name, { status: res.status });
+      return [];
+    }
+    const data = await res.json().catch(() => null);
+    const rows = (data?.data?.children || []).map((c) => normalize(c.data)).filter(Boolean);
+    logSrc("proxy:" + proxy.name, { status: res.status, rows: rows.length });
+    return rows;
+  } catch (e) {
+    logSrc("proxy:" + proxy.name, { error: String(e?.message || e) });
+    return [];
+  }
+}
+
+async function searchReddit(keyword) {
+  const redditUrl =
+    "https://www.reddit.com/search.json?q=" +
+    encodeURIComponent(keyword) +
+    "&sort=relevance&t=year&limit=20";
+
+  // Phase 1: race ALL credential-free sources in parallel — archives + CORS
+  // proxies. Whichever returns real threads first wins, so total latency is
+  // bounded by the fastest success (or the longest single timeout if all fail),
+  // never the sum.
+  const racers = [
+    nonEmpty(() => searchPullPush(keyword)),
+    nonEmpty(() => searchArcticShift(keyword)),
+    ...PROXIES.map((p) => nonEmpty(() => fetchProxyReddit(p, redditUrl))),
+  ];
+  try {
+    return await Promise.any(racers);
   } catch {
-    /* both archives failed or returned nothing — fall through */
+    logSrc("phase1", { result: "all archives + proxies failed or empty" });
   }
 
   // Phase 2: OAuth, only if app credentials happen to be configured.
   try {
     const rows = await searchOAuth(keyword);
-    if (rows && rows.length) return rows;
-  } catch {
-    /* ignore */
+    if (rows && rows.length) {
+      logSrc("oauth", { rows: rows.length });
+      return rows;
+    }
+  } catch (e) {
+    logSrc("oauth", { error: String(e?.message || e) });
   }
 
-  // Phase 3: public Reddit (usually 403 from cloud IPs) as a last resort.
+  // Phase 3: direct public Reddit (usually 403 from cloud IPs) — last resort.
   try {
     const rows = await searchPublicReddit(keyword);
+    logSrc("public", { rows: rows.length });
     if (rows && rows.length) return rows;
-  } catch {
-    /* ignore */
+  } catch (e) {
+    logSrc("public", { error: String(e?.message || e) });
   }
 
+  logSrc("result", { outcome: "ALL sources failed" });
   const err = new Error(
     "Couldn't reach a Reddit data source right now. Please try again in a moment.",
   );
