@@ -22,7 +22,7 @@ export default async function handler(req) {
   await store.setJSON(key, { status: "pending", owner: payload.email, createdAt: Date.now() });
 
   try {
-    const posts = await searchReddit(keyword, { scraperTimeout: 25000 });
+    const posts = await searchReddit(keyword, { scraperTimeout: 30000 });
     const opportunities = rankOpportunities(posts, keyword);
     if (!opportunities.length) {
       await store.setJSON(key, {
